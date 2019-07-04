@@ -1,5 +1,12 @@
 #!/usr/bin/python3
 
+"""
+Описание скрипта
+
+в цикле - скачиваем список пользователей --> генерируем новый after --> парсим в многопоточности --> сохраняем в csv
+
+"""
+
 
 import json
 import requests
@@ -33,68 +40,47 @@ url = """https://www.instagram.com/{username}/"""
 # считаем подписчиков что бы
 # делать перерывы между запросами
 index = 0
+user_id = '14682088361'
 
-# пишем заголовок в файл
-with open('followers.csv', 'w') as f:
-    f.write("username, posts, followers\n")
-
-while True:
-    # подставляем параметры
-    # в запрос с новым after
-    idifier = '{{"id":"15361983429","include_reel":true,\
-            "fetch_mutual":false,"first":13,"after":"{}"}}'.format(after)
-    # подставляем в params новое значение idifier
+def GET_USER_LIST(user_id, headers, after):
+    idifier = '{{"id":"{user_id}","include_reel":true,\
+            "fetch_mutual":false,"first":50,"after":"{after}"}}'.format(user_id=user_id,after=after)
     params = [
             ['query_hash', 'c76146de99bb02f6415203be841dd25a'],
             ['variables', idifier]]
-    # формируем запрос на получение
-    # списка пользователей
     response = requests.get('https://www.instagram.com/graphql/query/',
                             headers=headers, params=params
                             )
-    # загружаем список в формате json
     data = json.loads(response.text)
-    print(data)
-    # получаем новое значение after
-    after = data['data']['user']['edge_followed_by']['page_info']['end_cursor']
-    # парсим пользователей из data
-    for user in data['data']['user']['edge_followed_by']['edges']:
-        user_info = user['node']
-        print('while')
-        params = (('__a', '1'),)
-        username = user_info['username']
-        # отправляем запрос на страницу со списком пользователей
-        response = requests.get(url.format(username=username),
-                                headers=headers, params=params
-                                )
+    return data
 
-        # пытаемся сформировать json data
-        try:
-            data_user = json.loads(response.text)
-        except Exception:
-            # если не получилось, ждем 30 секунд
-            sleep(30)
-            # пробуем еще раз отправить запрос
-            # на страницу со списком пользователей
-            response = requests.get(url.format(username=username),
-                                    headers=headers, params=params
-                                    )
-            # загружаем список в формат json
-            data_user = json.loads(response.text)
-        # сохраняем пользователя в файл
-        with open('followers.csv', 'a') as f:
-            posts = data_user['graphql']['user']
-            posts = posts['edge_owner_to_timeline_media']['count']
-            followers = data_user['graphql']
-            followers = followers['user']['edge_followed_by']['count']
-            f.write(f"""{username},{posts},{followers}\n""")
-        # засыпаем что бы не заблокировали
-        sleep(1 if index % 100 != 0 else 5)
-        # прибавляем index
+def PARSING_USER(user, SAVER):
+    user_info = user['node']
+    params = (('__a', '1'),)
+    username = user_info['username']
+    response = requests.get(url.format(username=username), headers=headers, params=params)
+    data_user = json.loads(response.text)
+    SAVER(data_user, username)
+
+
+def SAVE_TO_CSV(data_user, username):
+    with open('followers.csv', 'a') as f:
+        posts = data_user['graphql']['user']
+        posts = posts['edge_owner_to_timeline_media']['count']
+        followers = data_user['graphql']
+        followers = followers['user']['edge_followed_by']['count']
+        f.write(f"""{username},{posts},{followers}\n""")
+
+
+
+if __name__ == '__main__':
+    while True:
+        data = GET_USER_LIST(user_id, headers, after)
+        after = data['data']['user']['edge_followed_by']['page_info']['end_cursor']
+        users = data['data']['user']['edge_followed_by']['edges']
+        for user in users:
+            PARSING_USER(user, SAVE_TO_CSV)
         index += 1
-    # проверяем есть ли следующая страница
-    # со списком пользователей, если нет,
-    # заканчиваем работу скрипта
-    data = data['data']['user']
-    if not data['edge_followed_by']['page_info']['has_next_page']:
-        break
+        if not data['data']['user']['edge_followed_by']['page_info']['has_next_page']:
+            break
+        
